@@ -1,0 +1,45 @@
+#!/bin/bash
+#
+# ipython's sqlite history has problems using NFS filesystems (version
+# 0.13.1)
+#
+# This is a wrapper to ipython to use a local disk (/scratch) instead
+#
+# Has some checks to handle multiple concurrent sessions, but
+# race conditions could still possibly happen.
+#
+# https://github.com/ipython/ipython/issues/882
+# "ipython freezes at start if IPYTHONDIR is on an NFS mount"
+#
+
+### default location of history
+histfile=~/.ipython/profile_default/history.sqlite
+
+### find out if previous instances have already set up history file on local disk
+tmphist=$(ps uU $(id -un) | grep 'ipython --HistoryManager.hist_file=' | head -1 | sed 's/ /\n/g' | grep '^--HistoryManager.hist_file=' | awk -F= '{print($2)}')
+
+
+if [ -z ${tmphist} ]; then
+    tmphist=$(mktemp /scratch/$(id -nu)_ipython_hist.sqlite.XXXXXXXXXX)
+    if [ -f ${histfile} ]; then
+	echo Loading history from ${histfile}
+	cp -p  ${histfile} ${tmphist}
+    fi
+fi
+
+echo Using history file ${tmphist}
+ipython --HistoryManager.hist_file=${tmphist} "$@"
+
+if [ -z "$(lsof ${tmphist})" ]; then
+    echo Saving history to ${histfile}
+    # create a backup before saving, just in case
+    if [ -f ${histfile} ]; then
+	mv ${histfile}{,.bak}
+    fi
+    if [ -f ${tmphist} ]; then
+	mv ${tmphist} ${histfile}
+    fi
+else
+    echo History file still being used.
+fi
+
